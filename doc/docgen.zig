@@ -37,13 +37,21 @@ pub fn main() -> %void {
 
 const State = enum {
     Start,
-    Derp,
+    LessThan,
+    BeginTagName,
 };
 
-// TODO look for code segments
+const Context = struct {
+    line: usize,
+    column: usize,
+};
 
 fn gen(in: &io.InStream, out: &const io.OutStream) {
     var state = State.Start;
+    var context = Context {
+        .line = 0,
+        .column = 0,
+    };
     while (true) {
         const byte = in.readByte() %% |err| {
             if (err == error.EndOfStream) {
@@ -53,11 +61,41 @@ fn gen(in: &io.InStream, out: &const io.OutStream) {
         };
         switch (state) {
             State.Start => switch (byte) {
+                '<' => {
+                    state = State.LessThan;
+                },
                 else => {
                     %%out.writeByte(byte);
                 },
             },
-            State.Derp => unreachable,
+            State.LessThan => switch (byte) {
+                '%' => {
+                    state = State.BeginTagName,
+                },
+                else => {
+                    %%out.writeByte('<');
+                    %%out.writeByte(byte);
+                    state = State.Start;
+                },
+            },
+            State.BeginTagName => switch (byte) {
+                'h' => {
+                    state = State.ExpectHeaderBeginQuote,
+                },
+                else => {
+                    reportError(context, "unrecognized tag character: '{}'", byte);
+                },
+            },
+        }
+        if (byte == '\n') {
+            context.line += 1;
+            context.column = 0;
+        } else {
+            context.column += 1;
         }
     }
+}
+
+fn reportError(context: Context, comptime format: []const u8, args: ...) -> noreturn {
+    std.debug.panic("{}:{}: " ++ format, context.line + 1, context.column + 1, args);
 }
